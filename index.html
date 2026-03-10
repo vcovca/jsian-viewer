@@ -12,6 +12,7 @@
       --text: #1a1a1a;
       --text-muted: #6b6b6b;
       --accent: #2d6a4f;
+      --accent-hover: #245a41;
       --accent-light: #e8f5ee;
       --key: #2d6a4f;
       --string: #b5451b;
@@ -30,6 +31,7 @@
       --text: #e8e6e0;
       --text-muted: #888;
       --accent: #52b788;
+      --accent-hover: #3da374;
       --accent-light: #1a2e22;
       --key: #74c69d;
       --string: #e07a5f;
@@ -144,7 +146,7 @@
       background: var(--surface);
       color: var(--text);
       cursor: pointer;
-      transition: background 0.15s, border-color 0.15s;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
       letter-spacing: 0.01em;
     }
     .btn:hover { background: var(--accent-light); border-color: var(--accent); color: var(--accent); }
@@ -154,7 +156,12 @@
       border-color: var(--accent);
       color: #fff;
     }
-    .btn-primary:hover { opacity: 0.88; color: #fff; }
+    .btn-primary:hover {
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
+      color: #fff;
+    }
+    .btn-primary:focus-visible { outline-color: var(--accent-hover); }
 
     /* Input panel wrapper — needed for drag overlay */
     .input-wrapper {
@@ -369,7 +376,6 @@
     const inputWrapper = document.getElementById('inputWrapper');
     const dropOverlay  = document.getElementById('dropOverlay');
 
-    // JSON parse on input
     jsonInput.addEventListener('keydown', e => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') parseJSON();
     });
@@ -394,7 +400,7 @@
       });
     });
 
-    // ── CSV upload button ──────────────────────────────────────────
+    // CSV upload button
     csvBtn.addEventListener('click', () => csvFileInput.click());
     csvFileInput.addEventListener('change', e => {
       const file = e.target.files[0];
@@ -402,7 +408,7 @@
       csvFileInput.value = '';
     });
 
-    // ── Drag-and-drop on the input wrapper ─────────────────────────
+    // Drag-and-drop
     let dragCounter = 0;
     inputWrapper.addEventListener('dragenter', e => {
       e.preventDefault();
@@ -423,7 +429,6 @@
       if (file.name.endsWith('.csv') || file.type === 'text/csv' || file.type === 'application/vnd.ms-excel') {
         readCSV(file);
       } else {
-        // treat as plain text / JSON
         const reader = new FileReader();
         reader.onload = ev => { jsonInput.value = ev.target.result; parseJSON(); };
         reader.readAsText(file);
@@ -433,13 +438,12 @@
       return Array.from(e.dataTransfer.types).includes('Files');
     }
 
-    // ── CSV parsing ────────────────────────────────────────────────
+    // CSV parsing
     function detectDelimiter(sample) {
       const counts = { ',': 0, '\t': 0, ';': 0 };
       for (const ch of sample) if (ch in counts) counts[ch]++;
       return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
     }
-
     function parseCSVLine(line, delim) {
       const fields = [];
       let cur = '', inQuote = false;
@@ -458,41 +462,34 @@
       fields.push(cur);
       return fields;
     }
-
     function csvToJSON(text) {
       const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-      // drop trailing empty lines
       while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
       if (lines.length < 1) return { json: '[]', rows: 0, cols: 0 };
-
       const delim = detectDelimiter(lines[0]);
       const headers = parseCSVLine(lines[0], delim).map(h => h.trim());
       const result = [];
-
       for (let i = 1; i < lines.length; i++) {
         if (!lines[i].trim()) continue;
         const vals = parseCSVLine(lines[i], delim);
         const obj = {};
         headers.forEach((h, idx) => {
           const raw = (vals[idx] ?? '').trim();
-          // auto-cast numbers and booleans
           if (raw === '') obj[h] = null;
           else if (raw.toLowerCase() === 'true') obj[h] = true;
           else if (raw.toLowerCase() === 'false') obj[h] = false;
-          else if (raw !== '' && !isNaN(Number(raw)) && raw !== '') obj[h] = Number(raw);
+          else if (!isNaN(Number(raw))) obj[h] = Number(raw);
           else obj[h] = raw;
         });
         result.push(obj);
       }
       return { json: JSON.stringify(result, null, 2), rows: result.length, cols: headers.length };
     }
-
     function readCSV(file) {
       const reader = new FileReader();
       reader.onload = ev => {
         const { json, rows, cols } = csvToJSON(ev.target.result);
         jsonInput.value = json;
-        // parse to tree and show CSV badge in status bar
         const start = performance.now();
         let parsed;
         try { parsed = JSON.parse(json); } catch(e) {
@@ -510,7 +507,7 @@
       reader.readAsText(file);
     }
 
-    // ── JSON parse ─────────────────────────────────────────────────
+    // JSON parse
     function parseJSON() {
       const raw = jsonInput.value.trim();
       if (!raw) {
@@ -535,7 +532,7 @@
       statusBar.textContent = `${formatBytes(size)} · parsed in ${ms}ms`;
     }
 
-    // ── Tree builder ───────────────────────────────────────────────
+    // Tree builder
     function buildTree(value, isRoot = false) {
       const wrapper = document.createDocumentFragment();
       if (typeof value === 'object' && value !== null) {
@@ -626,18 +623,15 @@
       const collapsed = node.classList.toggle('collapsed');
       toggle.setAttribute('aria-expanded', !collapsed);
     }
-
     function formatLeaf(v) {
       if (v === null) return `<span class="nl">null</span>`;
       if (typeof v === 'boolean') return `<span class="b">${v}</span>`;
       if (typeof v === 'number') return `<span class="n">${v}</span>`;
       return `<span class="s">"${escHtml(String(v))}"</span>`;
     }
-
     function escHtml(str) {
       return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
-
     function formatBytes(bytes) {
       if (bytes < 1024) return `${bytes} B`;
       if (bytes < 1048576) return `${(bytes/1024).toFixed(1)} KB`;
