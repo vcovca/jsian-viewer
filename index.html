@@ -134,7 +134,7 @@
       text-transform: uppercase;
       color: var(--text-muted);
     }
-    .panel-actions { display: flex; gap: 0.5rem; }
+    .panel-actions { display: flex; gap: 0.5rem; align-items: center; }
     .btn {
       font-size: 0.75rem;
       font-weight: 500;
@@ -155,6 +155,14 @@
       color: #fff;
     }
     .btn-primary:hover { opacity: 0.88; color: #fff; }
+
+    /* Input panel wrapper — needed for drag overlay */
+    .input-wrapper {
+      flex: 1;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
     textarea {
       flex: 1;
       width: 100%;
@@ -170,6 +178,38 @@
       transition: background 0.2s, color 0.2s;
     }
     textarea::placeholder { color: var(--text-muted); }
+
+    /* Drag-and-drop overlay */
+    .drop-overlay {
+      display: none;
+      position: absolute;
+      inset: 0;
+      background: var(--accent-light);
+      border: 2px dashed var(--accent);
+      border-radius: 0 0 10px 10px;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 0.5rem;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .drop-overlay.active { display: flex; }
+    .drop-overlay-icon { font-size: 2rem; }
+    .drop-overlay-text {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--accent);
+      letter-spacing: 0.02em;
+    }
+    .drop-overlay-sub {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+    }
+
+    /* Hidden file input */
+    #csvFileInput { display: none; }
+
     #output-panel { overflow: hidden; }
     #tree-container {
       flex: 1;
@@ -234,6 +274,19 @@
       background: var(--bg);
       letter-spacing: 0.02em;
     }
+    .csv-badge {
+      display: inline-block;
+      background: var(--accent-light);
+      color: var(--accent);
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      padding: 0.1rem 0.45rem;
+      letter-spacing: 0.04em;
+      margin-right: 0.4rem;
+      vertical-align: middle;
+    }
   </style>
 </head>
 <body>
@@ -250,11 +303,20 @@
       <div class="panel-header">
         <span class="panel-label">Input</span>
         <div class="panel-actions">
+          <button class="btn" id="csvBtn" title="Upload CSV file">CSV</button>
           <button class="btn" id="clearBtn">Clear</button>
           <button class="btn btn-primary" id="parseBtn">Parse</button>
         </div>
       </div>
-      <textarea id="jsonInput" placeholder="Paste JSON here…" spellcheck="false" autocomplete="off"></textarea>
+      <div class="input-wrapper" id="inputWrapper">
+        <textarea id="jsonInput" placeholder="Paste JSON here… or drag &amp; drop a .csv file" spellcheck="false" autocomplete="off"></textarea>
+        <div class="drop-overlay" id="dropOverlay">
+          <div class="drop-overlay-icon">📂</div>
+          <div class="drop-overlay-text">Drop CSV to convert</div>
+          <div class="drop-overlay-sub">comma · tab · semicolon auto-detected</div>
+        </div>
+      </div>
+      <input type="file" id="csvFileInput" accept=".csv,text/csv" />
     </div>
 
     <div class="panel" id="output-panel">
@@ -271,7 +333,7 @@
   </main>
 
   <script>
-    // Theme: localStorage overrides, falls back to prefers-color-scheme
+    // Theme
     const themeBtn = document.getElementById('themeBtn');
     const html = document.documentElement;
 
@@ -280,21 +342,14 @@
       if (saved) return saved;
       return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     }
-
     function applyTheme(theme) {
       html.setAttribute('data-theme', theme);
       themeBtn.setAttribute('aria-pressed', theme === 'dark');
     }
-
     applyTheme(getInitialTheme());
-
-    // Also respond to OS-level changes in real time (only if user hasn't manually toggled)
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-      if (!localStorage.getItem('jsian-theme')) {
-        applyTheme(e.matches ? 'dark' : 'light');
-      }
+      if (!localStorage.getItem('jsian-theme')) applyTheme(e.matches ? 'dark' : 'light');
     });
-
     themeBtn.addEventListener('click', () => {
       const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
       localStorage.setItem('jsian-theme', next);
@@ -302,31 +357,33 @@
     });
 
     // Elements
-    const jsonInput = document.getElementById('jsonInput');
-    const treeContainer = document.getElementById('tree-container');
-    const statusBar = document.getElementById('statusBar');
-    const parseBtn = document.getElementById('parseBtn');
-    const clearBtn = document.getElementById('clearBtn');
+    const jsonInput    = document.getElementById('jsonInput');
+    const treeContainer= document.getElementById('tree-container');
+    const statusBar    = document.getElementById('statusBar');
+    const parseBtn     = document.getElementById('parseBtn');
+    const clearBtn     = document.getElementById('clearBtn');
     const expandAllBtn = document.getElementById('expandAllBtn');
     const collapseAllBtn = document.getElementById('collapseAllBtn');
+    const csvBtn       = document.getElementById('csvBtn');
+    const csvFileInput = document.getElementById('csvFileInput');
+    const inputWrapper = document.getElementById('inputWrapper');
+    const dropOverlay  = document.getElementById('dropOverlay');
 
+    // JSON parse on input
     jsonInput.addEventListener('keydown', e => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') parseJSON();
     });
-
     let debounceTimer;
     jsonInput.addEventListener('input', () => {
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(parseJSON, 400);
     });
-
     parseBtn.addEventListener('click', parseJSON);
     clearBtn.addEventListener('click', () => {
       jsonInput.value = '';
       treeContainer.innerHTML = '<span class="placeholder-msg">Tree will appear here</span>';
       statusBar.textContent = 'Ready';
     });
-
     expandAllBtn.addEventListener('click', () => {
       treeContainer.querySelectorAll('.tree-toggle').forEach(t => t.parentElement.classList.remove('collapsed'));
     });
@@ -337,6 +394,123 @@
       });
     });
 
+    // ── CSV upload button ──────────────────────────────────────────
+    csvBtn.addEventListener('click', () => csvFileInput.click());
+    csvFileInput.addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (file) readCSV(file);
+      csvFileInput.value = '';
+    });
+
+    // ── Drag-and-drop on the input wrapper ─────────────────────────
+    let dragCounter = 0;
+    inputWrapper.addEventListener('dragenter', e => {
+      e.preventDefault();
+      dragCounter++;
+      if (hasCSV(e)) dropOverlay.classList.add('active');
+    });
+    inputWrapper.addEventListener('dragleave', e => {
+      dragCounter--;
+      if (dragCounter === 0) dropOverlay.classList.remove('active');
+    });
+    inputWrapper.addEventListener('dragover', e => e.preventDefault());
+    inputWrapper.addEventListener('drop', e => {
+      e.preventDefault();
+      dragCounter = 0;
+      dropOverlay.classList.remove('active');
+      const file = e.dataTransfer.files[0];
+      if (!file) return;
+      if (file.name.endsWith('.csv') || file.type === 'text/csv' || file.type === 'application/vnd.ms-excel') {
+        readCSV(file);
+      } else {
+        // treat as plain text / JSON
+        const reader = new FileReader();
+        reader.onload = ev => { jsonInput.value = ev.target.result; parseJSON(); };
+        reader.readAsText(file);
+      }
+    });
+    function hasCSV(e) {
+      return Array.from(e.dataTransfer.types).includes('Files');
+    }
+
+    // ── CSV parsing ────────────────────────────────────────────────
+    function detectDelimiter(sample) {
+      const counts = { ',': 0, '\t': 0, ';': 0 };
+      for (const ch of sample) if (ch in counts) counts[ch]++;
+      return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+    }
+
+    function parseCSVLine(line, delim) {
+      const fields = [];
+      let cur = '', inQuote = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (inQuote) {
+          if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+          else if (ch === '"') inQuote = false;
+          else cur += ch;
+        } else {
+          if (ch === '"') inQuote = true;
+          else if (ch === delim) { fields.push(cur); cur = ''; }
+          else cur += ch;
+        }
+      }
+      fields.push(cur);
+      return fields;
+    }
+
+    function csvToJSON(text) {
+      const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+      // drop trailing empty lines
+      while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+      if (lines.length < 1) return { json: '[]', rows: 0, cols: 0 };
+
+      const delim = detectDelimiter(lines[0]);
+      const headers = parseCSVLine(lines[0], delim).map(h => h.trim());
+      const result = [];
+
+      for (let i = 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+        const vals = parseCSVLine(lines[i], delim);
+        const obj = {};
+        headers.forEach((h, idx) => {
+          const raw = (vals[idx] ?? '').trim();
+          // auto-cast numbers and booleans
+          if (raw === '') obj[h] = null;
+          else if (raw.toLowerCase() === 'true') obj[h] = true;
+          else if (raw.toLowerCase() === 'false') obj[h] = false;
+          else if (raw !== '' && !isNaN(Number(raw)) && raw !== '') obj[h] = Number(raw);
+          else obj[h] = raw;
+        });
+        result.push(obj);
+      }
+      return { json: JSON.stringify(result, null, 2), rows: result.length, cols: headers.length };
+    }
+
+    function readCSV(file) {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const { json, rows, cols } = csvToJSON(ev.target.result);
+        jsonInput.value = json;
+        // parse to tree and show CSV badge in status bar
+        const start = performance.now();
+        let parsed;
+        try { parsed = JSON.parse(json); } catch(e) {
+          treeContainer.innerHTML = `<div class="error-msg">⚠ ${escHtml(e.message)}</div>`;
+          statusBar.textContent = 'CSV parse error';
+          return;
+        }
+        const frag = buildTree(parsed, true);
+        treeContainer.innerHTML = '';
+        treeContainer.appendChild(frag);
+        const ms = (performance.now() - start).toFixed(1);
+        const size = new Blob([json]).size;
+        statusBar.innerHTML = `<span class="csv-badge">CSV</span>${rows} rows · ${cols} columns · ${formatBytes(size)} · parsed in ${ms}ms`;
+      };
+      reader.readAsText(file);
+    }
+
+    // ── JSON parse ─────────────────────────────────────────────────
     function parseJSON() {
       const raw = jsonInput.value.trim();
       if (!raw) {
@@ -361,6 +535,7 @@
       statusBar.textContent = `${formatBytes(size)} · parsed in ${ms}ms`;
     }
 
+    // ── Tree builder ───────────────────────────────────────────────
     function buildTree(value, isRoot = false) {
       const wrapper = document.createDocumentFragment();
       if (typeof value === 'object' && value !== null) {
