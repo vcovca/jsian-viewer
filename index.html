@@ -195,7 +195,6 @@
       font-family: inherit;
       padding: 0.5rem 0;
     }
-    /* Tree styles */
     .tree-node { padding-left: 1.25rem; position: relative; }
     .tree-root { padding-left: 0; }
     .tree-toggle {
@@ -272,17 +271,34 @@
   </main>
 
   <script>
-    // Theme
+    // Theme: localStorage overrides, falls back to prefers-color-scheme
     const themeBtn = document.getElementById('themeBtn');
     const html = document.documentElement;
-    const saved = localStorage.getItem('jsian-theme');
-    if (saved) html.setAttribute('data-theme', saved);
-    themeBtn.setAttribute('aria-pressed', html.getAttribute('data-theme') === 'dark');
+
+    function getInitialTheme() {
+      const saved = localStorage.getItem('jsian-theme');
+      if (saved) return saved;
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+
+    function applyTheme(theme) {
+      html.setAttribute('data-theme', theme);
+      themeBtn.setAttribute('aria-pressed', theme === 'dark');
+    }
+
+    applyTheme(getInitialTheme());
+
+    // Also respond to OS-level changes in real time (only if user hasn't manually toggled)
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+      if (!localStorage.getItem('jsian-theme')) {
+        applyTheme(e.matches ? 'dark' : 'light');
+      }
+    });
+
     themeBtn.addEventListener('click', () => {
       const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-      html.setAttribute('data-theme', next);
       localStorage.setItem('jsian-theme', next);
-      themeBtn.setAttribute('aria-pressed', next === 'dark');
+      applyTheme(next);
     });
 
     // Elements
@@ -294,12 +310,10 @@
     const expandAllBtn = document.getElementById('expandAllBtn');
     const collapseAllBtn = document.getElementById('collapseAllBtn');
 
-    // Parse on Cmd/Ctrl+Enter
     jsonInput.addEventListener('keydown', e => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') parseJSON();
     });
 
-    // Live parse with small debounce
     let debounceTimer;
     jsonInput.addEventListener('input', () => {
       clearTimeout(debounceTimer);
@@ -354,7 +368,6 @@
         const keys = Object.keys(value);
         const node = document.createElement('div');
         node.className = 'tree-node' + (isRoot ? ' tree-root' : '');
-
         const toggle = document.createElement('div');
         toggle.className = 'tree-toggle';
         toggle.setAttribute('role', 'button');
@@ -364,30 +377,25 @@
         toggle.innerHTML += `<span class="bracket">${isArr ? '[' : '{'}</span><span class="count">${keys.length} ${keys.length === 1 ? 'item' : 'items'}</span>`;
         toggle.addEventListener('click', () => toggleNode(node, toggle));
         toggle.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleNode(node, toggle); } });
-
         const children = document.createElement('div');
         children.className = 'tree-children';
-
         keys.forEach(k => {
           const child = document.createElement('div');
           child.style.position = 'relative';
           const v = value[k];
           const keySpan = `<span class="k">${escHtml(isArr ? k : '"' + k + '"')}</span><span class="bracket">: </span>`;
           if (typeof v === 'object' && v !== null) {
-            const subNode = buildSubNode(k, v, isArr);
-            child.appendChild(subNode);
+            child.appendChild(buildSubNode(k, v, isArr));
           } else {
             child.className = 'leaf-row';
             child.innerHTML = keySpan + formatLeaf(v);
           }
           children.appendChild(child);
         });
-
         const closingBracket = document.createElement('div');
         closingBracket.className = 'leaf-row';
         closingBracket.style.paddingLeft = '0';
         closingBracket.innerHTML = `<span class="bracket">${isArr ? ']' : '}'}</span>`;
-
         node.appendChild(toggle);
         node.appendChild(children);
         node.appendChild(closingBracket);
@@ -406,7 +414,6 @@
       const keys = Object.keys(value);
       const node = document.createElement('div');
       node.className = 'tree-node';
-
       const toggle = document.createElement('div');
       toggle.className = 'tree-toggle';
       toggle.setAttribute('role', 'button');
@@ -416,10 +423,8 @@
       toggle.innerHTML = `<span class="caret"><svg viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 5l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="k">${keyDisplay}</span><span class="bracket">: ${isArrV ? '[' : '{'}</span><span class="count">${keys.length} ${keys.length === 1 ? 'item' : 'items'}</span>`;
       toggle.addEventListener('click', () => toggleNode(node, toggle));
       toggle.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleNode(node, toggle); } });
-
       const children = document.createElement('div');
       children.className = 'tree-children';
-
       keys.forEach(k => {
         const child = document.createElement('div');
         const v = value[k];
@@ -432,12 +437,10 @@
         }
         children.appendChild(child);
       });
-
       const closingBracket = document.createElement('div');
       closingBracket.className = 'leaf-row';
       closingBracket.style.paddingLeft = '0';
       closingBracket.innerHTML = `<span class="bracket">${isArrV ? ']' : '}'}</span>`;
-
       node.appendChild(toggle);
       node.appendChild(children);
       node.appendChild(closingBracket);
